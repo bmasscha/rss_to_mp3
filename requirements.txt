@@ -1,2 +1,4 @@
 requests
+pygame
+urllib3
 pyinstaller
