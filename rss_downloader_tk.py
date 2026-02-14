@@ -23,6 +23,8 @@ class RSSDownloaderApp(tk.Tk):
         
         self.stop_event = threading.Event()
         self.download_thread = None
+        self.episodes = [] # Store episode data
+
 
         # Style
         self.style = ttk.Style(self)
@@ -32,21 +34,28 @@ class RSSDownloaderApp(tk.Tk):
         
     def create_widgets(self):
         # Main Frame
-        main_frame = ttk.Frame(self, padding="20 20 20 20")
+        main_frame = ttk.Frame(self, padding="10 10 10 10")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # Header
-        header_label = ttk.Label(main_frame, text="RSS TO MP3 DOWNLOADER", font=("Segoe UI", 16, "bold"))
-        header_label.pack(pady=(0, 20))
+        header_label = ttk.Label(main_frame, text="RSS TO MP3 DOWNLOADER", font=("Segoe UI", 14, "bold"))
+        header_label.pack(pady=(0, 10))
         
         # RSS URL Input
         rss_frame = ttk.Frame(main_frame)
         rss_frame.pack(fill=tk.X, pady=5)
         ttk.Label(rss_frame, text="RSS Feed URL:").pack(anchor=tk.W)
-        self.rss_entry = ttk.Entry(rss_frame)
-        self.rss_entry.pack(fill=tk.X, pady=(2, 0))
+        
+        url_input_frame = ttk.Frame(rss_frame)
+        url_input_frame.pack(fill=tk.X, pady=(2, 0))
+        
+        self.rss_entry = ttk.Entry(url_input_frame)
+        self.rss_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.rss_entry.insert(0, "https://anchor.fm/s/d399ffec/podcast/rss") 
         
+        self.list_btn = ttk.Button(url_input_frame, text="List Episodes", command=self.fetch_episodes_thread)
+        self.list_btn.pack(side=tk.RIGHT, padx=(5, 0))
+
         # Destination Folder
         dest_frame = ttk.Frame(main_frame)
         dest_frame.pack(fill=tk.X, pady=5)
@@ -63,22 +72,42 @@ class RSSDownloaderApp(tk.Tk):
         browse_btn = ttk.Button(dest_inner, text="Browse", command=self.browse_folder)
         browse_btn.pack(side=tk.RIGHT, padx=(5, 0))
         
+        # Episode List
+        list_frame = ttk.Frame(main_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        ttk.Label(list_frame, text="Episodes (Select to Download):").pack(anchor=tk.W)
+        
+        columns = ('date', 'title')
+        self.tree = ttk.Treeview(list_frame, columns=columns, show='headings', selectmode='extended')
+        self.tree.heading('date', text='Date')
+        self.tree.heading('title', text='Title')
+        self.tree.column('date', width=100, stretch=False)
+        self.tree.column('title', stretch=True)
+        
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
         # Buttons Frame
         btn_frame = ttk.Frame(main_frame)
-        btn_frame.pack(fill=tk.X, pady=20)
+        btn_frame.pack(fill=tk.X, pady=10)
 
-        # Start Button
-        self.start_btn = ttk.Button(btn_frame, text="START DOWNLOAD", command=self.start_download_thread)
+        # Download Selected Button
+        self.start_btn = ttk.Button(btn_frame, text="DOWNLOAD SELECTED", command=self.start_download_thread)
         self.start_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        self.start_btn.config(state='disabled') # Disabled initially
         
         # Cancel Button
         self.cancel_btn = ttk.Button(btn_frame, text="CANCEL", command=self.cancel_download, state='disabled')
         self.cancel_btn.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(5, 0))
         
-        # Log Area
-        ttk.Label(main_frame, text="Progress Output:").pack(anchor=tk.W)
-        self.log_area = scrolledtext.ScrolledText(main_frame, height=10, state='disabled', font=("Consolas", 9))
-        self.log_area.pack(fill=tk.BOTH, expand=True)
+        # Status Bar
+        self.status_var = tk.StringVar()
+        self.status_var.set("Ready")
+        status_bar = ttk.Label(main_frame, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
+        status_bar.pack(fill=tk.X, pady=(5, 0))
 
     def browse_folder(self):
         folder = filedialog.askdirectory(initialdir=self.dest_entry.get())
@@ -87,28 +116,104 @@ class RSSDownloaderApp(tk.Tk):
             self.dest_entry.insert(0, folder)
 
     def log(self, message):
-        self.log_area.config(state='normal')
-        self.log_area.insert(tk.END, message + "\n")
-        self.log_area.see(tk.END)
-        self.log_area.config(state='disabled')
+        print(message)
+        # Update status bar with the latest message
+        self.status_var.set(message)
+        self.update_idletasks()
 
-    def start_download_thread(self):
+
+    def fetch_episodes_thread(self):
         rss_url = self.rss_entry.get().strip()
-        folder = self.dest_entry.get().strip()
-        
         if not rss_url:
             messagebox.showerror("Error", "Please enter an RSS URL")
             return
+        
+        self.list_btn.config(state='disabled')
+        self.status_var.set("Fetching feed...")
+        
+        thread = threading.Thread(target=self.fetch_episodes_logic, args=(rss_url,))
+        thread.daemon = True
+        thread.start()
+
+    def fetch_episodes_logic(self, rss_url):
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            response = requests.get(rss_url, headers=headers, timeout=60)
+            response.raise_for_status()
+            root = ET.fromstring(response.content)
+            channel = root.find('channel')
             
+            if channel is None:
+                self.after(0, lambda: messagebox.showerror("Error", "Invalid RSS feed"))
+                return
+
+            self.episodes = []
+            items = channel.findall('item')
+            
+            for item in items:
+                title = item.findtext('title', 'Untitled')
+                pubDate = item.findtext('pubDate', '')
+                
+                # Extract URL
+                mp3_url = None
+                enclosure = item.find('enclosure')
+                if enclosure is not None:
+                    mp3_url = enclosure.get('url')
+                
+                if not mp3_url:
+                    link = item.findtext('link')
+                    if link and link.lower().endswith('.mp3'):
+                        mp3_url = link
+                
+                if mp3_url:
+                     self.episodes.append({
+                        'title': title,
+                        'date': pubDate[:16] if pubDate else "Unknown", # Simple truncation for now
+                        'url': mp3_url,
+                        'original_item': item
+                    })
+            
+            self.after(0, self.update_list)
+            
+        except Exception as e:
+            self.after(0, lambda: messagebox.showerror("Error", f"Failed to fetch feed: {e}"))
+            self.after(0, lambda: self.status_var.set("Ready"))
+        finally:
+            self.after(0, lambda: self.list_btn.config(state='normal'))
+
+    def update_list(self):
+        # Clear existing
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        for i, ep in enumerate(self.episodes):
+            self.tree.insert('', 'end', iid=i, values=(ep['date'], ep['title']))
+            
+        self.status_var.set(f"Found {len(self.episodes)} episodes.")
+        self.start_btn.config(state='normal')
+
+    def start_download_thread(self):
+        selection = self.tree.selection()
+        if not selection:
+             messagebox.showwarning("Warning", "No episodes selected.")
+             return
+             
+        folder = self.dest_entry.get().strip()
+        if not folder:
+             messagebox.showerror("Error", "Please select a destination folder.")
+             return
+
         self.start_btn.config(state='disabled')
         self.cancel_btn.config(state='normal')
-        self.log_area.config(state='normal')
-        self.log_area.delete(1.0, tk.END)
-        self.log_area.config(state='disabled')
+        self.list_btn.config(state='disabled')
         
         self.stop_event.clear()
         
-        self.download_thread = threading.Thread(target=self.run_download, args=(rss_url, folder))
+        # Get selected episodes data
+        selected_indices = [int(item) for item in selection]
+        episodes_to_download = [self.episodes[i] for i in selected_indices]
+        
+        self.download_thread = threading.Thread(target=self.run_download, args=(episodes_to_download, folder))
         self.download_thread.daemon = True
         self.download_thread.start()
 
@@ -118,23 +223,26 @@ class RSSDownloaderApp(tk.Tk):
             self.stop_event.set()
             self.cancel_btn.config(state='disabled')
 
-    def run_download(self, rss_url, folder):
+    def run_download(self, episodes, folder):
         try:
-            self.perform_download(rss_url, folder)
+            self.perform_download_selected(episodes, folder)
         except Exception as e:
             self.log_safe(f"[!] Critical Error: {e}")
+            self.after(0, lambda: messagebox.showerror("Error", str(e)))
         finally:
             self.after(0, lambda: self.start_btn.config(state='normal'))
             self.after(0, lambda: self.cancel_btn.config(state='disabled'))
+            self.after(0, lambda: self.list_btn.config(state='normal'))
             if self.stop_event.is_set():
                 self.log_safe("[*] Download session cancelled.")
             else:
                 self.log_safe("[*] Download session finished.")
 
+
     def log_safe(self, message):
         self.after(0, lambda: self.log(message))
 
-    def perform_download(self, rss_url, folder, max_episodes=1000):
+    def perform_download_selected(self, episodes, folder):
         if self.stop_event.is_set(): return
 
         if not os.path.exists(folder):
@@ -145,36 +253,16 @@ class RSSDownloaderApp(tk.Tk):
                 self.log_safe(f"[!] Error creating folder: {e}")
                 return
 
-        self.log_safe(f"[*] Fetching feed: {rss_url}")
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-            response = requests.get(rss_url, headers=headers, timeout=60)
-            response.raise_for_status()
-            root = ET.fromstring(response.content)
-        except Exception as e:
-            self.log_safe(f"[!] Error fetching/parsing feed: {e}")
-            return
-
-        if self.stop_event.is_set(): return
-
-        channel = root.find('channel')
-        if channel is None:
-            self.log_safe("[!] Invalid RSS format (no channel).")
-            return
-
-        podcast_title = channel.findtext('title', 'Unknown Podcast')
-        self.log_safe(f"[*] Podcast: {podcast_title}")
+        self.log_safe(f"[*] Starting download of {len(episodes)} episodes...")
         self.log_safe("=" * 40)
+        
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 
-        items = channel.findall('item')
-        if max_episodes:
-            items = items[:max_episodes]
-
-        count = 0
-        for item in items:
+        for i, ep in enumerate(episodes):
             if self.stop_event.is_set(): break
             
-            title = item.findtext('title', 'Untitled_Episode')
+            title = ep['title']
+            url = ep['url']
             safe_title = slugify(title)
             file_path = os.path.join(folder, f"{safe_title}.mp3")
 
@@ -183,28 +271,10 @@ class RSSDownloaderApp(tk.Tk):
                 self.log_safe(f"[-] Exists: {title}")
                 continue
 
-            # Find URL
-            mp3_url = None
-            enclosure = item.find('enclosure')
-            if enclosure is not None:
-                url = enclosure.get('url')
-                ctype = enclosure.get('type', '')
-                if 'audio' in ctype or (url and url.lower().endswith('.mp3')):
-                    mp3_url = url
-            
-            if not mp3_url:
-                link = item.findtext('link', '')
-                if link and link.lower().endswith('.mp3'):
-                    mp3_url = link
-            
-            if not mp3_url:
-                self.log_safe(f"[-] Skipping: {title} (No MP3 found)")
-                continue
-
             # Download
             try:
-                self.log_safe(f"[+] Downloading: {title}...")
-                with requests.get(mp3_url, headers=headers, stream=True, timeout=60) as r:
+                self.log_safe(f"[+] Downloading ({i+1}/{len(episodes)}): {title}...")
+                with requests.get(url, headers=headers, stream=True, timeout=60) as r:
                     r.raise_for_status()
                     with open(file_path, 'wb') as f:
                         for chunk in r.iter_content(chunk_size=8192):
@@ -215,7 +285,6 @@ class RSSDownloaderApp(tk.Tk):
                                 return
                             f.write(chunk)
                 self.log_safe(f"    [DONE]")
-                count += 1
             except Exception as e:
                 self.log_safe(f" [!] Failed {title}: {e}")
                 if os.path.exists(file_path):
@@ -226,7 +295,7 @@ class RSSDownloaderApp(tk.Tk):
         
         self.log_safe("=" * 40)
         if not self.stop_event.is_set():
-            self.log_safe(f"[*] Process complete. {count} new episodes.")
+            self.log_safe(f"[*] Process complete.")
 
 if __name__ == "__main__":
     app = RSSDownloaderApp()
