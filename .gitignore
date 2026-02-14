@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+venv/
+.conda-env/
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# Logs
+*.log
+debug_output.txt
+diagnosis_output.txt
+
+# IDES
+.vscode/
+.idea/
+
+# User Data
+mijn_podcasts/
+
+# Audio
+*.mp3

@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "G:\My Drive\Prive\rss_to_mp3\check_qt.py", line 3, in <module>
+    from PyQt6.QtWidgets import QApplication, QLabel
+ImportError: DLL load failed while importing QtWidgets: The specified procedure could not be found.
+Error: DLL load failed while importing QtWidgets: The specified procedure could not be found.

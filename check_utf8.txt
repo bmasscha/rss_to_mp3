@@ -1,0 +1,13 @@
+﻿python :   File "<string>", line 1
+At line:1 char:1
++ python -c "try: import feedparser; print('feedparser ok') except: pri ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (  File "<string>", line 1:String) [],  
+   RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    try: import feedparser; print('feedparser ok') except: print('feedparser missing
+'); try: import requests; print('requests ok') except: print('requests missing'); tr
+y: import tqdm; print('tqdm ok') except: print('tqdm missing')
+                                                   ^^^^^^
+SyntaxError: invalid syntax

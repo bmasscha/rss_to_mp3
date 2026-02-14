@@ -1,0 +1,1 @@
+G:\My Drive\Prive\rss_to_mp3\venv\Scripts\python.exe: No module named PyInstaller
